@@ -1,6 +1,7 @@
 package com.simulation.ui;
 
 import com.simulation.simulation.LatticeModel;
+import com.simulation.simulation.Particle;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import java.awt.Color;
@@ -8,9 +9,10 @@ import java.awt.Graphics;
 import java.awt.Dimension;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-
-import com.simulation.simulation.Particle;
 import java.util.List;
+
+import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
 
 /**
  * VisualizerPanel.java
@@ -22,6 +24,17 @@ public class VisualizerPanel extends JPanel {
 
     private final LatticeModel model;
     private final int scale = 4; // Scale factor for rendering (1 grid node = 4x4 pixels)
+    private BufferedImage image;
+    private int[] pixels;
+    
+    public enum ViewMode {
+        HEATMAP,
+        VECTORS,
+        PARTICLES,
+        DENSITY
+    }
+    
+    private ViewMode currentViewMode = ViewMode.HEATMAP;
 
     public VisualizerPanel(LatticeModel model) {
         this.model = model;
@@ -46,13 +59,25 @@ public class VisualizerPanel extends JPanel {
     }
     
     public void updateSize() {
-        this.setPreferredSize(new Dimension(model.getWidth() * scale, model.getHeight() * scale));
+        int w = model.getWidth();
+        int h = model.getHeight();
+        this.setPreferredSize(new Dimension(w * scale, h * scale));
+        
+        // Create buffered image for fast rendering
+        image = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        pixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
+        
         this.revalidate();
     }
 
     private void handleMouseInput(MouseEvent e) {
         int gridX = e.getX() / scale;
         int gridY = e.getY() / scale;
+        
+        // Debug Inspection
+        if (model.isDebugMode() && e.getID() == MouseEvent.MOUSE_PRESSED) {
+            model.printNodeInfo(gridX, gridY);
+        }
         
         // Left click to draw, Right click to erase
         boolean isSolid = !SwingUtilities.isRightMouseButton(e);
@@ -69,83 +94,150 @@ public class VisualizerPanel extends JPanel {
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
 
-        // Render the grid
-        for (int x = 0; x < model.getWidth(); x++) {
-            for (int y = 0; y < model.getHeight(); y++) {
-                
-                // Draw Obstacles
-                if (model.isObstacle(x, y)) {
-                    g.setColor(Color.GRAY);
-                    g.fillRect(x * scale, y * scale, scale, scale);
-                    continue;
-                }
-
-                // Calculate Velocity Magnitude
-                double ux = model.getVelocityX(x, y);
-                double uy = model.getVelocityY(x, y);
-                double speed = Math.sqrt(ux * ux + uy * uy);
-
-                // Map speed to color (Heatmap)
-                // Assuming max speed is around 0.2 - 0.3 for stability
-                Color color = getHeatMapColor(speed);
-                g.setColor(color);
-                g.fillRect(x * scale, y * scale, scale, scale);
-            }
+        // Render based on View Mode
+        if (currentViewMode == ViewMode.HEATMAP || currentViewMode == ViewMode.DENSITY) {
+            renderScalarField(g);
+        } else if (currentViewMode == ViewMode.VECTORS) {
+            renderVectors(g);
+        } else {
+            renderObstaclesOnly(g);
         }
 
-        // Draw Particles (Streamlines)
-        g.setColor(Color.WHITE);
-        List<Particle> particles = model.getParticles();
-        if (particles != null) {
-            for (Particle p : particles) {
-                int px = (int) (p.x * scale);
-                int py = (int) (p.y * scale);
-                g.fillOval(px, py, 2, 2);
-            }
+        // Draw Particles (Streamlines) - Always draw for Heatmap/Particles modes, maybe optional for others
+        // User asked for "Pure Particles", so we should draw them there.
+        // Let's draw particles in all modes except maybe Vectors if it's too cluttered, 
+        // but "Streamlines" are usually good.
+        // Actually, "Pure Particles" implies we ONLY see particles (and obstacles).
+        
+        if (currentViewMode != ViewMode.VECTORS) {
+             g.setColor(Color.WHITE);
+             List<Particle> particles = model.getParticles();
+             if (particles != null) {
+                 for (Particle p : particles) {
+                     int px = (int) (p.x * scale);
+                     int py = (int) (p.y * scale);
+                     g.fillOval(px, py, 2, 2);
+                 }
+             }
         }
 
         // Draw UI Overlay (Forces)
         g.setColor(new Color(0, 0, 0, 150)); // Semi-transparent black background
-        g.fillRect(5, 5, 250, 65);
+        g.fillRect(5, 5, 250, 85); // Increased height for mode info
         
         g.setColor(Color.WHITE);
         g.setFont(new java.awt.Font("Monospaced", java.awt.Font.BOLD, 12));
         g.drawString(String.format("Drag Force: %.5f", model.getDragForce()), 15, 25);
         g.drawString(String.format("Lift Force: %.5f", model.getLiftForce()), 15, 45);
-        g.drawString("Left Click: Draw | Right Click: Erase", 15, 65);
+        g.drawString("Mode: " + currentViewMode, 15, 65);
+        g.drawString("Left Click: Draw | Right Click: Erase", 15, 85);
+    }
+
+    private void renderScalarField(Graphics g) {
+        int w = model.getWidth();
+        int h = model.getHeight();
+        
+        // Update pixel array directly
+        for (int x = 0; x < w; x++) {
+            for (int y = 0; y < h; y++) {
+                int idx = y * w + x; // BufferedImage is row-major (y * width + x)
+                
+                if (model.isObstacle(x, y)) {
+                    pixels[idx] = 0xFF808080; // Gray
+                    continue;
+                }
+
+                int colorInt;
+                if (currentViewMode == ViewMode.DENSITY) {
+                    double rho = model.getDensity(x, y);
+                    double normalized = (rho - 0.98) / 0.04; 
+                    colorInt = getHeatMapColorInt(normalized * 0.15);
+                } else {
+                    double ux = model.getVelocityX(x, y);
+                    double uy = model.getVelocityY(x, y);
+                    double speed = Math.sqrt(ux * ux + uy * uy);
+                    colorInt = getHeatMapColorInt(speed);
+                }
+                
+                pixels[idx] = colorInt;
+            }
+        }
+        
+        // Draw the image scaled up
+        g.drawImage(image, 0, 0, w * scale, h * scale, null);
+    }
+    
+    private int getHeatMapColorInt(double value) {
+        double maxSpeed = 0.15; 
+        double normalized = value / maxSpeed;
+        if (normalized > 1.0) normalized = 1.0;
+        if (normalized < 0.0) normalized = 0.0;
+
+        int r, g, b;
+
+        if (normalized < 0.5) {
+            double ratio = normalized * 2.0;
+            r = 0;
+            g = (int) (255 * ratio);
+            b = (int) (255 * (1 - ratio));
+        } else {
+            double ratio = (normalized - 0.5) * 2.0;
+            r = (int) (255 * ratio);
+            g = (int) (255 * (1 - ratio));
+            b = 0;
+        }
+        
+        // Pack into int (ARGB)
+        return (0xFF << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    private void renderObstaclesOnly(Graphics g) {
+        g.setColor(Color.BLACK);
+        g.fillRect(0, 0, getWidth(), getHeight());
+        
+        for (int x = 0; x < model.getWidth(); x++) {
+            for (int y = 0; y < model.getHeight(); y++) {
+                if (model.isObstacle(x, y)) {
+                    g.setColor(Color.GRAY);
+                    g.fillRect(x * scale, y * scale, scale, scale);
+                }
+            }
+        }
+    }
+
+    private void renderVectors(Graphics g) {
+        renderObstaclesOnly(g); // Draw background first
+        
+        g.setColor(Color.CYAN);
+        int skip = 2; // Skip pixels to avoid clutter
+        
+        for (int x = 0; x < model.getWidth(); x += skip) {
+            for (int y = 0; y < model.getHeight(); y += skip) {
+                if (model.isObstacle(x, y)) continue;
+
+                double ux = model.getVelocityX(x, y);
+                double uy = model.getVelocityY(x, y);
+                
+                int x1 = x * scale + scale / 2;
+                int y1 = y * scale + scale / 2;
+                int x2 = x1 + (int)(ux * scale * 20); // Scale vector length
+                int y2 = y1 + (int)(uy * scale * 20);
+                
+                g.drawLine(x1, y1, x2, y2);
+            }
+        }
     }
 
     /**
      * Maps a scalar value (speed) to a Color (Blue -> Green -> Red).
      */
     private Color getHeatMapColor(double value) {
-        // Normalize value (clamp between 0 and max expected speed)
-        double maxSpeed = 0.15; 
-        double normalized = value / maxSpeed;
-        if (normalized > 1.0) normalized = 1.0;
-        if (normalized < 0.0) normalized = 0.0;
+        int colorInt = getHeatMapColorInt(value);
+        return new Color(colorInt);
+    }
 
-        // Simple Blue to Red gradient
-        // 0.0 -> Blue (0, 0, 255)
-        // 0.5 -> Green (0, 255, 0)
-        // 1.0 -> Red (255, 0, 0)
-        
-        int r, g, b;
-
-        if (normalized < 0.5) {
-            // Blue to Green
-            double ratio = normalized * 2.0;
-            r = 0;
-            g = (int) (255 * ratio);
-            b = (int) (255 * (1 - ratio));
-        } else {
-            // Green to Red
-            double ratio = (normalized - 0.5) * 2.0;
-            r = (int) (255 * ratio);
-            g = (int) (255 * (1 - ratio));
-            b = 0;
-        }
-
-        return new Color(r, g, b);
+    public void setViewMode(ViewMode mode) {
+        this.currentViewMode = mode;
+        repaint();
     }
 }

@@ -11,16 +11,20 @@ It's a virtual wind tunnel where you can draw walls, change the wind speed, and 
 
 ## What it does
 
-*   **Simulates Fluid Flow**: Uses the D2Q9 Lattice Boltzmann model to calculate fluid movement.
+*   **Simulates Fluid Flow**: Uses the D2Q9 Lattice Boltzmann model with **Large Eddy Simulation (LES)** turbulence modeling to calculate fluid movement.
 *   **Interactive Sandbox**: You can draw obstacles with your mouse while the simulation runs.
 *   **Visualizes Data**:
     *   **Heatmap**: Shows velocity (Blue is slow, Red is fast).
-    *   **Streamlines**: White particles show the path of the air.
+    *   **Vectors**: Displays flow direction and magnitude.
+    *   **Particles**: Pure particle view for clear streamline visualization.
+    *   **Density**: Visualizes pressure/density variations.
 *   **Calculates Forces**: Displays real-time **Drag** and **Lift** values acting on the obstacles.
 *   **Adjustable Settings**:
-    *   Change fluid viscosity (make it flow like water or honey).
+    *   **Fluid Presets**: Quickly switch between Air, Water, and Oil.
+    *   Change fluid viscosity manually.
     *   Adjust wind speed.
     *   Change grid resolution (up to 400x200).
+    *   **Debug Mode**: Inspect node values and check stability.
 
 ## Built With
 
@@ -57,7 +61,9 @@ It's a virtual wind tunnel where you can draw walls, change the wind speed, and 
 | **Left Click + Drag** | Draw solid obstacles (walls). |
 | **Right Click + Drag** | Erase obstacles. |
 | **Sliders** | Adjust Viscosity and Inlet Velocity. |
-| **Dropdown** | Change Simulation Resolution. |
+| **Dropdowns** | Change Resolution, Visualization Mode, and Fluid Medium. |
+| **Debug Checkbox** | Enable detailed logging and stability checks. |
+| **Click (Debug)** | Print detailed physics state of the clicked node to console. |
 
 ## Future Improvements
 
@@ -65,7 +71,6 @@ Here are some things I plan to add next:
 
 *   **Image Import**: Loading black-and-white images to use as custom obstacle shapes (like airfoils or car silhouettes).
 *   **Save/Load**: Ability to save the current state of the grid to a file.
-*   **Advanced Turbulence**: Implementing LES (Large Eddy Simulation) for more accurate high-speed flow.
 *   **3D Support**: Expanding the engine to use the D3Q19 model for 3D simulations.
 
 ## The Physics Behind It
@@ -80,9 +85,17 @@ Where:
 *   $\tau$: Relaxation time (related to viscosity).
 *   $f_i^{eq}$: Equilibrium distribution (Maxwell-Boltzmann).
 
+The simulation also implements the **Smagorinsky Large Eddy Simulation (LES)** model to handle turbulence at higher Reynolds numbers by locally adjusting the relaxation time based on the strain rate tensor.
+
 The **D2Q9** model discretizes space into a grid where each node has 9 possible particle velocities. The simulation proceeds in two steps:
 1.  **Collision**: Particles at a node interact and relax towards equilibrium.
 2.  **Streaming**: Particles move to neighboring nodes based on their velocity.
+
+### Performance Optimizations
+To ensure smooth performance (60 FPS) even at high resolutions, the engine uses:
+*   **Flattened 1D Arrays**: Data is stored in 1D arrays instead of 3D/2D arrays to maximize CPU cache locality.
+*   **Direct Pixel Manipulation**: Rendering is done by writing directly to a `BufferedImage` integer array, bypassing slower Java2D drawing calls.
+*   **Thread Safety**: Critical sections are synchronized to prevent race conditions during UI interaction.
 
 ## License
 

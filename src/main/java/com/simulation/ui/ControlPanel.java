@@ -91,6 +91,34 @@ public class ControlPanel extends JPanel {
             parentFrame.setLocationRelativeTo(null); // Re-center
         });
         add(resCombo);
+        add(Box.createVerticalStrut(15));
+
+        // --- View Mode ---
+        add(createLabel("Visualization Mode:"));
+        JComboBox<VisualizerPanel.ViewMode> viewCombo = new JComboBox<>(VisualizerPanel.ViewMode.values());
+        viewCombo.setAlignmentX(Component.LEFT_ALIGNMENT);
+        viewCombo.addActionListener(e -> {
+            view.setViewMode((VisualizerPanel.ViewMode) viewCombo.getSelectedItem());
+        });
+        add(viewCombo);
+        add(Box.createVerticalStrut(15));
+        
+        // --- Fluid Presets ---
+        add(createLabel("Fluid Medium:"));
+        String[] fluids = {"Custom", "Air (Low Viscosity)", "Water (High Viscosity)", "Oil (Very High)"};
+        JComboBox<String> fluidCombo = new JComboBox<>(fluids);
+        fluidCombo.setAlignmentX(Component.LEFT_ALIGNMENT);
+        fluidCombo.addActionListener(e -> {
+            String selected = (String) fluidCombo.getSelectedItem();
+            if (selected.startsWith("Air")) {
+                viscositySlider.setValue(52); // tau = 0.52 (Very low viscosity, high Re)
+            } else if (selected.startsWith("Water")) {
+                viscositySlider.setValue(60); // tau = 0.60
+            } else if (selected.startsWith("Oil")) {
+                viscositySlider.setValue(90); // tau = 0.90
+            }
+        });
+        add(fluidCombo);
         add(Box.createVerticalStrut(20));
         
         // --- Reset Button ---
@@ -105,6 +133,34 @@ public class ControlPanel extends JPanel {
              model.setResolution(w, h);
         });
         add(resetButton);
+        add(Box.createVerticalStrut(20));
+
+        // --- Debug Options ---
+        add(createLabel("Debug Options:"));
+        
+        JCheckBox debugCheck = new JCheckBox("Enable Debug Mode");
+        debugCheck.setAlignmentX(Component.LEFT_ALIGNMENT);
+        debugCheck.addActionListener(e -> {
+            model.setDebugMode(debugCheck.isSelected());
+        });
+        add(debugCheck);
+        
+        JButton stepButton = new JButton("Step (1 Frame)");
+        stepButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        stepButton.addActionListener(e -> {
+            if (!engine.isPaused()) {
+                engine.setPaused(true);
+                pauseButton.setSelected(true);
+                pauseButton.setText("Resume Simulation");
+            }
+            model.step();
+            view.repaint();
+            if (model.isDebugMode()) {
+                System.out.println("[Debug] Stepped 1 frame.");
+                model.checkStability();
+            }
+        });
+        add(stepButton);
         
         // Push everything to top
         add(Box.createVerticalGlue());

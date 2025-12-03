@@ -47,16 +47,17 @@ public class LatticeModel {
     
     // Distribution functions: f[x][y][i]
     // We use two arrays to handle the streaming step (read from one, write to other)
-    private double[][][] f;
-    private double[][][] fNew;
+    // Flattened arrays for performance: f[x * height * Q + y * Q + i]
+    private double[] f;
+    private double[] fNew;
 
     // Macroscopic variables
-    private double[][] rho; // Density
-    private double[][] ux;  // Velocity X
-    private double[][] uy;  // Velocity Y
+    private double[] rho; // Density
+    private double[] ux;  // Velocity X
+    private double[] uy;  // Velocity Y
 
     // Obstacle mask (true if solid)
-    private boolean[][] obstacle;
+    private boolean[] obstacle;
     
     // Tracer Particles
     private List<Particle> particles;
@@ -68,14 +69,29 @@ public class LatticeModel {
     private double tau = 0.6; 
     private double omega = 1.0 / tau; // Relaxation frequency
     
+    // Smagorinsky Constant for LES
+    private double smagorinskyConstant = 0.15;
+    
     // Inlet Velocity
     private double inletVelocity = 0.1;
+    
+    // Debugging
+    private boolean debugMode = false;
 
     public LatticeModel() {
         initializeSimulation();
     }
     
-    public void setResolution(int w, int h) {
+    public void setDebugMode(boolean debug) {
+        this.debugMode = debug;
+        System.out.println("[LatticeModel] Debug Mode: " + debug);
+    }
+    
+    public boolean isDebugMode() {
+        return debugMode;
+    }
+    
+    public synchronized void setResolution(int w, int h) {
         this.width = w;
         this.height = h;
         initializeSimulation();
@@ -90,20 +106,37 @@ public class LatticeModel {
         this.inletVelocity = u;
     }
     
+    public void setSmagorinskyConstant(double c) {
+        this.smagorinskyConstant = c;
+    }
+    
+    public double getSmagorinskyConstant() {
+        return smagorinskyConstant;
+    }
+
     public int getWidth() { return width; }
     public int getHeight() { return height; }
+    
+    private int getIndex(int x, int y) {
+        return x * height + y;
+    }
+    
+    private int getFIndex(int x, int y, int i) {
+        return (x * height + y) * Q + i;
+    }
 
     /**
      * Sets up initial conditions and obstacles.
      */
     private void initializeSimulation() {
         // Initialize arrays
-        f = new double[width][height][Q];
-        fNew = new double[width][height][Q];
-        rho = new double[width][height];
-        ux = new double[width][height];
-        uy = new double[width][height];
-        obstacle = new boolean[width][height];
+        int size = width * height;
+        f = new double[size * Q];
+        fNew = new double[size * Q];
+        rho = new double[size];
+        ux = new double[size];
+        uy = new double[size];
+        obstacle = new boolean[size];
 
         // 1. Define Obstacles (e.g., a circle in the center)
         int cx = width / 4;
@@ -112,22 +145,28 @@ public class LatticeModel {
 
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
+                int idx = getIndex(x, y);
+                
+                // Top and Bottom Walls
+                if (y == 0 || y == height - 1) {
+                    obstacle[idx] = true;
+                }
                 // Circle obstacle
-                if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= radius * radius) {
-                    obstacle[x][y] = true;
+                else if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= radius * radius) {
+                    obstacle[idx] = true;
                 } else {
-                    obstacle[x][y] = false;
+                    obstacle[idx] = false;
                 }
 
                 // Initial flow: slightly moving to the right
-                rho[x][y] = 1.0;
-                ux[x][y] = inletVelocity; // Initial velocity
-                uy[x][y] = 0.0;
+                rho[idx] = 1.0;
+                ux[idx] = inletVelocity; // Initial velocity
+                uy[idx] = 0.0;
 
                 // Set equilibrium distribution
-                double[] eq = calculateEquilibrium(rho[x][y], ux[x][y], uy[x][y]);
+                double[] eq = calculateEquilibrium(rho[idx], ux[idx], uy[idx]);
                 for (int i = 0; i < Q; i++) {
-                    f[x][y][i] = eq[i];
+                    f[getFIndex(x, y, i)] = eq[i];
                 }
             }
         }
@@ -146,7 +185,7 @@ public class LatticeModel {
     /**
      * Performs one time step of the simulation.
      */
-    public void step() {
+    public synchronized void step() {
         // Update Particles
         updateParticles();
 
@@ -157,7 +196,8 @@ public class LatticeModel {
         // 1. Collision Step (BGK)
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
-                if (obstacle[x][y]) continue; // Skip collision inside solids
+                int idx = getIndex(x, y);
+                if (obstacle[idx]) continue; // Skip collision inside solids
 
                 // Calculate macroscopic variables (rho, u) from f
                 double density = 0;
@@ -165,9 +205,10 @@ public class LatticeModel {
                 double velY = 0;
 
                 for (int i = 0; i < Q; i++) {
-                    density += f[x][y][i];
-                    velX += f[x][y][i] * EX[i];
-                    velY += f[x][y][i] * EY[i];
+                    int fIdx = getFIndex(x, y, i);
+                    density += f[fIdx];
+                    velX += f[fIdx] * EX[i];
+                    velY += f[fIdx] * EY[i];
                 }
 
                 if (density > 0) {
@@ -176,142 +217,94 @@ public class LatticeModel {
                 }
 
                 // Store for visualization
-                rho[x][y] = density;
-                ux[x][y] = velX;
-                uy[x][y] = velY;
+                rho[idx] = density;
+                ux[idx] = velX;
+                uy[idx] = velY;
 
                 // Compute Equilibrium
                 double[] feq = calculateEquilibrium(density, velX, velY);
 
+                // --- LES Implementation (Smagorinsky Model) ---
+                double omegaEff = omega; // Default to base relaxation
+                
+                if (density > 0.000001) { // Avoid division by zero
+                     // Calculate non-equilibrium stress tensor moments
+                    double Qxx = 0, Qxy = 0, Qyy = 0;
+                    for (int i = 0; i < Q; i++) {
+                        int fIdx = getFIndex(x, y, i);
+                        double fNeq = f[fIdx] - feq[i];
+                        Qxx += EX[i] * EX[i] * fNeq;
+                        Qyy += EY[i] * EY[i] * fNeq;
+                        Qxy += EX[i] * EY[i] * fNeq;
+                    }
+                    
+                    // Magnitude of the strain rate tensor (related to Q)
+                    // Q_mag = sqrt(2 * sum(Q_ab * Q_ab))
+                    double Q_mag = Math.sqrt(2.0 * (Qxx * Qxx + Qyy * Qyy + 2.0 * Qxy * Qxy));
+                    
+                    // Calculate effective relaxation time
+                    // tau_eff = 0.5 * (tau + sqrt(tau^2 + 18 * (Cs * Delta)^2 * Q_mag / rho))
+                    double tauEff = 0.5 * (tau + Math.sqrt(tau * tau + 18.0 * smagorinskyConstant * smagorinskyConstant * Q_mag / density));
+                    omegaEff = 1.0 / tauEff;
+                }
+
                 // Relax towards equilibrium
                 for (int i = 0; i < Q; i++) {
-                    f[x][y][i] = (1.0 - omega) * f[x][y][i] + omega * feq[i];
+                    int fIdx = getFIndex(x, y, i);
+                    f[fIdx] = (1.0 - omegaEff) * f[fIdx] + omegaEff * feq[i];
                 }
             }
         }
 
-        // 2. Streaming Step
-        // Move particles to neighboring nodes
-        for (int x = 0; x < width; x++) {
-            for (int y = 0; y < height; y++) {
-                for (int i = 0; i < Q; i++) {
-                    // Target coordinates
-                    int nextX = x + EX[i];
-                    int nextY = y + EY[i];
-
-                    // Periodic Boundary Conditions (Wrap around)
-                    // Or simple bounce/outflow. Here we use periodic for simplicity or simple bounds.
-                    // Let's use Periodic for X, Bounce for Y (Top/Bottom walls)
-                    
-                    if (nextX < 0) nextX = width - 1;
-                    if (nextX >= width) nextX = 0;
-
-                    if (nextY < 0 || nextY >= height) {
-                        // Wall bounce-back logic handled implicitly or explicitly?
-                        // For simple streaming, if out of bounds, we might just reflect.
-                        // But standard streaming writes to fNew.
-                        // If out of bounds Y, we treat it as a bounce back on the *next* step or here.
-                        // Simplest: Bounce back immediately if hitting top/bottom wall
-                        // But let's stick to standard streaming and handle boundaries after.
-                        // Actually, for a tunnel, Top/Bottom are solid walls.
-                        continue; 
-                    }
-
-                    fNew[nextX][nextY][i] = f[x][y][i];
-                }
-            }
-        }
-
-        // 3. Boundary Conditions & Obstacles
-        for (int x = 0; x < width; x++) {
-            for (int y = 0; y < height; y++) {
-                // Handle internal obstacles (Bounce-back)
-                if (obstacle[x][y]) {
-                    for (int i = 1; i < Q; i++) {
-                        // Reflect incoming particles back to where they came from
-                        // The particle that *would have* arrived here at direction i
-                        // is bounced back to direction OPPOSITE[i] at the source node.
-                        // Standard way: fNew at the boundary node takes the value of the opposite direction
-                        // from the streaming step.
-                        // Simplified: Just swap directions in place? No, we have fNew.
-                        
-                        // Better approach for obstacles in loop:
-                        // If a node is an obstacle, it reflects particles.
-                        // We can implement this by post-processing fNew or modifying streaming.
-                        // Let's use a simple rule: 
-                        // f_new(x, y, i) = f(x - ex[i], y - ey[i], i) usually.
-                        // If (x,y) is solid, we don't update it.
-                        // Instead, at the fluid neighbor, the particle coming from solid is bounced?
-                        
-                        // Let's use the standard "Wet Node" or simple bounce-back:
-                        // If we streamed into an obstacle, we reverse.
-                        // Actually, let's do it simply:
-                        // Iterate all nodes. If solid, reflect all f's.
-                        // But we already streamed.
-                    }
-                }
-                
-                // Top/Bottom Walls (Bounce back)
-                if (y == 0 || y == height - 1) {
-                     obstacle[x][y] = true; // Treat as obstacle
-                }
-            }
-        }
-        
-        // Apply Bounce-Back for all solid nodes (including walls)
-        // This overrides the streaming for solid nodes
-        for (int x = 0; x < width; x++) {
-            for (int y = 0; y < height; y++) {
-                if (obstacle[x][y]) {
-                    for (int i = 1; i < Q; i++) {
-                        // The particle that was streaming *into* this obstacle node 'i'
-                        // should be bounced back to the neighbor 'opposite[i]'.
-                        // However, standard simple bounce back:
-                        // f_out(x_fluid, opposite) = f_in(x_fluid, i)
-                        
-                        // Let's use a robust method:
-                        // During streaming, if target is obstacle, write to source with opposite direction.
-                        // Since we already did full streaming into fNew, we need to correct it.
-                        // Actually, let's rewrite streaming to handle obstacles directly.
-                    }
-                }
-            }
-        }
-        
-        // RE-IMPLEMENTING STREAMING WITH BOUNCE-BACK INTEGRATED
-        // Reset fNew to 0 or handle carefully
-        // It's cleaner to do it in one pass.
+        // 2. Streaming Step (with Bounce-Back)
+        // We iterate over all nodes. If a node is fluid, we stream its particles to neighbors.
+        // If a neighbor is an obstacle, the particle bounces back to the source.
         
         for(int x=0; x<width; x++) {
             for(int y=0; y<height; y++) {
-                if(obstacle[x][y]) continue; // Don't stream *from* obstacles (they have no fluid)
+                int idx = getIndex(x, y);
+                if(obstacle[idx]) continue; // Don't stream *from* obstacles (they have no fluid)
 
                 for(int i=0; i<Q; i++) {
                     int nextX = x + EX[i];
                     int nextY = y + EY[i];
 
-                    // Periodic X
-                    if (nextX < 0) nextX = width - 1;
-                    if (nextX >= width) nextX = 0;
+                    // Periodic X (Inlet/Outlet handling)
+                    // We want Open Boundary at Outlet (Right) and Fixed Inlet (Left)
+                    // But the streaming loop handles movement.
+                    
+                    // If nextX >= width (Outlet), we extrapolate or absorb.
+                    // Simple Zero-Gradient: Copy from neighbor (width-1)
+                    if (nextX >= width) {
+                        // Particle leaves the domain.
+                        // We don't wrap around.
+                        continue; 
+                    }
+                    
+                    // If nextX < 0 (Inlet), we don't stream *from* outside.
+                    // The inlet condition below will overwrite fNew[0][y].
+                    if (nextX < 0) {
+                        continue;
+                    }
 
                     // Check Y bounds (Walls)
                     if (nextY < 0 || nextY >= height) {
                         // Wall bounce: particle stays at (x,y) but reverses direction
-                        fNew[x][y][OPPOSITE[i]] = f[x][y][i];
+                        fNew[getFIndex(x, y, OPPOSITE[i])] = f[getFIndex(x, y, i)];
                     } 
                     // Check Internal Obstacle
-                    else if (obstacle[nextX][nextY]) {
+                    else if (obstacle[getIndex(nextX, nextY)]) {
                         // Obstacle bounce: particle stays at (x,y) but reverses direction
-                        fNew[x][y][OPPOSITE[i]] = f[x][y][i];
+                        fNew[getFIndex(x, y, OPPOSITE[i])] = f[getFIndex(x, y, i)];
                         
                         // Calculate Momentum Exchange (Force)
                         // Force = 2 * mass * velocity_component
-                        stepDrag += 2.0 * f[x][y][i] * EX[i];
-                        stepLift += 2.0 * f[x][y][i] * EY[i];
+                        stepDrag += 2.0 * f[getFIndex(x, y, i)] * EX[i];
+                        stepLift += 2.0 * f[getFIndex(x, y, i)] * EY[i];
                     } 
                     else {
                         // Normal propagation
-                        fNew[nextX][nextY][i] = f[x][y][i];
+                        fNew[getFIndex(nextX, nextY, i)] = f[getFIndex(x, y, i)];
                     }
                 }
             }
@@ -322,18 +315,35 @@ public class LatticeModel {
         this.liftForce = stepLift;
         
         // Inlet Condition (Left side drive)
-        // Force a specific velocity at x=0
+        // Use Parabolic Profile to avoid shear instability at walls
+        // u(y) = 4 * U_max * (y/H) * (1 - y/H)
         for (int y = 1; y < height - 1; y++) {
-            if (!obstacle[0][y]) {
-                double[] eq = calculateEquilibrium(1.0, inletVelocity, 0.0); // Constant inflow u=0.1
+            int idx = getIndex(0, y);
+            if (!obstacle[idx]) {
+                double normalizedY = (double) y / (height - 1);
+                double profileFactor = 4.0 * normalizedY * (1.0 - normalizedY);
+                double u = inletVelocity * profileFactor;
+                
+                double[] eq = calculateEquilibrium(1.0, u, 0.0); 
                 for (int i = 0; i < Q; i++) {
-                    fNew[0][y][i] = eq[i];
+                    fNew[getFIndex(0, y, i)] = eq[i];
+                }
+            }
+        }
+        
+        // Outlet Condition (Right side open)
+        // Zero-gradient: f[width-1] = f[width-2]
+        for (int y = 1; y < height - 1; y++) {
+            int idx = getIndex(width-1, y);
+            if (!obstacle[idx]) {
+                for (int i = 0; i < Q; i++) {
+                    fNew[getFIndex(width-1, y, i)] = fNew[getFIndex(width-2, y, i)];
                 }
             }
         }
 
         // Swap arrays
-        double[][][] temp = f;
+        double[] temp = f;
         f = fNew;
         fNew = temp;
     }
@@ -356,19 +366,19 @@ public class LatticeModel {
     // --- Getters for Visualization ---
 
     public double getVelocityX(int x, int y) {
-        return ux[x][y];
+        return ux[getIndex(x, y)];
     }
 
     public double getVelocityY(int x, int y) {
-        return uy[x][y];
+        return uy[getIndex(x, y)];
     }
     
     public double getDensity(int x, int y) {
-        return rho[x][y];
+        return rho[getIndex(x, y)];
     }
 
     public boolean isObstacle(int x, int y) {
-        return obstacle[x][y];
+        return obstacle[getIndex(x, y)];
     }
 
     public double getDragForce() {
@@ -383,22 +393,23 @@ public class LatticeModel {
      * Dynamically updates the obstacle state of a node.
      * If removing an obstacle, we must re-initialize the fluid at that node.
      */
-    public void setObstacle(int x, int y, boolean isSolid) {
+    public synchronized void setObstacle(int x, int y, boolean isSolid) {
         if (x < 0 || x >= width || y < 0 || y >= height) return;
         
-        obstacle[x][y] = isSolid;
+        int idx = getIndex(x, y);
+        obstacle[idx] = isSolid;
 
         if (!isSolid) {
             // If turning a solid into fluid, initialize it to equilibrium
             // to prevent instability (zero density/velocity).
-            rho[x][y] = 1.0;
-            ux[x][y] = 0.0;
-            uy[x][y] = 0.0;
+            rho[idx] = 1.0;
+            ux[idx] = 0.0;
+            uy[idx] = 0.0;
             
             double[] eq = calculateEquilibrium(1.0, 0.0, 0.0);
             for (int i = 0; i < Q; i++) {
-                f[x][y][i] = eq[i];
-                fNew[x][y][i] = eq[i];
+                f[getFIndex(x, y, i)] = eq[i];
+                fNew[getFIndex(x, y, i)] = eq[i];
             }
         }
     }
@@ -415,18 +426,66 @@ public class LatticeModel {
             // Check bounds
             if (gridX >= 0 && gridX < width && gridY >= 0 && gridY < height) {
                 // Advect particle
-                double velX = ux[gridX][gridY];
-                double velY = uy[gridX][gridY];
+                int idx = getIndex(gridX, gridY);
+                double velX = ux[idx];
+                double velY = uy[idx];
                 
                 p.x += velX * 2.0; // Scale velocity for visual effect
                 p.y += velY * 2.0;
             }
 
             // Respawn if out of bounds or stuck in obstacle
-            if (p.x < 0 || p.x >= width || p.y < 0 || p.y >= height || (gridX >= 0 && gridX < width && gridY >= 0 && gridY < height && obstacle[gridX][gridY])) {
+            if (p.x < 0 || p.x >= width || p.y < 0 || p.y >= height || (gridX >= 0 && gridX < width && gridY >= 0 && gridY < height && obstacle[getIndex(gridX, gridY)])) {
                 p.x = 0; // Respawn at inlet
                 p.y = random.nextDouble() * height;
             }
         }
+    }
+    
+    /**
+     * Checks the simulation field for NaN or Infinite values.
+     * Returns true if instability is detected.
+     */
+    public boolean checkStability() {
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                int idx = getIndex(x, y);
+                if (Double.isNaN(rho[idx]) || Double.isInfinite(rho[idx])) {
+                    if (debugMode) {
+                        System.err.printf("[Stability] Instability detected at (%d, %d). Density: %f%n", x, y, rho[idx]);
+                    }
+                    return true;
+                }
+                if (Double.isNaN(ux[idx]) || Double.isInfinite(ux[idx]) || 
+                    Double.isNaN(uy[idx]) || Double.isInfinite(uy[idx])) {
+                    if (debugMode) {
+                        System.err.printf("[Stability] Velocity instability at (%d, %d). u: (%f, %f)%n", x, y, ux[idx], uy[idx]);
+                    }
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Prints detailed state of a specific node for debugging.
+     */
+    public void printNodeInfo(int x, int y) {
+        if (x < 0 || x >= width || y < 0 || y >= height) {
+            System.out.println("[Debug] Node out of bounds: " + x + ", " + y);
+            return;
+        }
+        
+        int idx = getIndex(x, y);
+        System.out.println("--- Node Info (" + x + ", " + y + ") ---");
+        System.out.printf("Density (rho): %.6f%n", rho[idx]);
+        System.out.printf("Velocity (u): (%.6f, %.6f)%n", ux[idx], uy[idx]);
+        System.out.printf("Obstacle: %b%n", obstacle[idx]);
+        System.out.println("Distribution Functions (f):");
+        for (int i = 0; i < Q; i++) {
+            System.out.printf("  f[%d]: %.6f%n", i, f[getFIndex(x, y, i)]);
+        }
+        System.out.println("-----------------------------");
     }
 }

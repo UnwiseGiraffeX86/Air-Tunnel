@@ -29,6 +29,10 @@ public class Engine implements Runnable {
         this.paused = paused;
     }
 
+    public boolean isPaused() {
+        return paused;
+    }
+
     public synchronized void start() {
         if (running) return;
         running = true;
@@ -56,9 +60,24 @@ public class Engine implements Runnable {
 
             // 1. Update Physics
             if (!paused) {
-                // We can perform multiple physics steps per frame for faster simulation
-                for (int i = 0; i < 5; i++) {
-                    model.step();
+                try {
+                    // We can perform multiple physics steps per frame for faster simulation
+                    for (int i = 0; i < 5; i++) {
+                        model.step();
+                    }
+                    
+                    // Debug: Check stability occasionally (e.g., every 60 frames)
+                    if (model.isDebugMode() && System.currentTimeMillis() % 1000 < 20) {
+                        if (model.checkStability()) {
+                            System.err.println("[Engine] Simulation unstable! Pausing.");
+                            paused = true;
+                        }
+                    }
+                    
+                } catch (Exception e) {
+                    System.err.println("Simulation Error: " + e.getMessage());
+                    e.printStackTrace();
+                    paused = true; // Pause on error to prevent log spam
                 }
             }
 
@@ -70,6 +89,12 @@ public class Engine implements Runnable {
             wait = TARGET_TIME - (elapsed / 1000000);
 
             if (wait < 0) wait = 5;
+            
+            // Debug: Log FPS
+            if (model.isDebugMode() && System.currentTimeMillis() % 1000 < 20) {
+                 // Approximate check once per second
+                 System.out.println("[Engine] FPS: " + (1000.0 / (elapsed / 1000000.0 + wait)));
+            }
 
             try {
                 Thread.sleep(wait);
