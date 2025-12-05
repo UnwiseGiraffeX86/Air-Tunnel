@@ -4,6 +4,11 @@
 ![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)
 ![Release](https://img.shields.io/badge/Release-Alpha%200.1-green?style=for-the-badge)
 
+<p align="center">
+  <img src="snapshots/velocity_preview.png" width="45%" alt="Velocity Preview" />
+  <img src="snapshots/curl_preview.png" width="45%" alt="Curl Preview" />
+</p>
+
 A 2D fluid dynamics simulation written in Java. I built this project to explore computational physics, specifically the **Lattice Boltzmann Method (LBM)**, and to create a visual way to understand how air flows around objects.
 
 It's a virtual wind tunnel where you can draw walls, change the wind speed, and see how the air reacts in real-time.

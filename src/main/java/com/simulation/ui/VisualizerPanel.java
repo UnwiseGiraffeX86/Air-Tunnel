@@ -105,6 +105,49 @@ public class VisualizerPanel extends JPanel {
         
         if (canvas == null) initBuffer();
         
+        renderToBuffer();
+
+        int mw = model.getWidth();
+        int mh = model.getHeight();
+
+        // Calculate scale to preserve aspect ratio
+        double scale = Math.min((double) getWidth() / mw, (double) getHeight() / mh);
+        int drawW = (int) (mw * scale);
+        int drawH = (int) (mh * scale);
+        int offX = (getWidth() - drawW) / 2;
+        int offY = (getHeight() - drawH) / 2;
+
+        // Draw the image scaled and centered
+        Graphics2D g2d = (Graphics2D) g;
+        g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+        g2d.drawImage(canvas, offX, offY, drawW, drawH, null);
+
+        // Draw Particles (Streamlines)
+        g.setColor(Color.WHITE);
+        List<Particle> particles = model.getParticles();
+        if (particles != null) {
+            for (Particle p : particles) {
+                int px = offX + (int) (p.x * scale);
+                int py = offY + (int) (p.y * scale);
+                // Clip to drawing area
+                if (px >= offX && px < offX + drawW && py >= offY && py < offY + drawH) {
+                    g.fillOval(px, py, 2, 2);
+                }
+            }
+        }
+
+        // Draw UI Overlay (Forces)
+        g.setColor(new Color(0, 0, 0, 150)); // Semi-transparent black background
+        g.fillRect(5, 5, 250, 65);
+        
+        g.setColor(Color.WHITE);
+        g.setFont(new java.awt.Font("Monospaced", java.awt.Font.BOLD, 12));
+        g.drawString(String.format("Drag Force: %.5f", model.getDragForce()), 15, 25);
+        g.drawString(String.format("Lift Force: %.5f", model.getLiftForce()), 15, 45);
+        g.drawString("Left Click: Draw | Right Click: Erase", 15, 65);
+    }
+
+    private void renderToBuffer() {
         int mw = model.getWidth();
         int mh = model.getHeight();
         
@@ -151,42 +194,26 @@ public class VisualizerPanel extends JPanel {
                 canvasPixels[idx] = colorVal;
             }
         }
+    }
 
-        // Calculate scale to preserve aspect ratio
-        double scale = Math.min((double) getWidth() / mw, (double) getHeight() / mh);
-        int drawW = (int) (mw * scale);
-        int drawH = (int) (mh * scale);
-        int offX = (getWidth() - drawW) / 2;
-        int offY = (getHeight() - drawH) / 2;
-
-        // Draw the image scaled and centered
-        Graphics2D g2d = (Graphics2D) g;
-        g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-        g2d.drawImage(canvas, offX, offY, drawW, drawH, null);
-
-        // Draw Particles (Streamlines)
-        g.setColor(Color.WHITE);
-        List<Particle> particles = model.getParticles();
-        if (particles != null) {
-            for (Particle p : particles) {
-                int px = offX + (int) (p.x * scale);
-                int py = offY + (int) (p.y * scale);
-                // Clip to drawing area
-                if (px >= offX && px < offX + drawW && py >= offY && py < offY + drawH) {
-                    g.fillOval(px, py, 2, 2);
-                }
-            }
-        }
-
-        // Draw UI Overlay (Forces)
-        g.setColor(new Color(0, 0, 0, 150)); // Semi-transparent black background
-        g.fillRect(5, 5, 250, 65);
+    public BufferedImage getSnapshot(int modeToCheck) {
+        int originalMode = this.viewMode;
+        this.viewMode = modeToCheck;
         
-        g.setColor(Color.WHITE);
-        g.setFont(new java.awt.Font("Monospaced", java.awt.Font.BOLD, 12));
-        g.drawString(String.format("Drag Force: %.5f", model.getDragForce()), 15, 25);
-        g.drawString(String.format("Lift Force: %.5f", model.getLiftForce()), 15, 45);
-        g.drawString("Left Click: Draw | Right Click: Erase", 15, 65);
+        if (canvas == null) initBuffer();
+        renderToBuffer();
+        
+        // Create a copy
+        BufferedImage snapshot = new BufferedImage(canvas.getWidth(), canvas.getHeight(), BufferedImage.TYPE_INT_RGB);
+        Graphics g = snapshot.getGraphics();
+        g.drawImage(canvas, 0, 0, null);
+        g.dispose();
+        
+        this.viewMode = originalMode;
+        // Re-render original mode to restore state
+        renderToBuffer(); 
+        
+        return snapshot;
     }
 
     /**

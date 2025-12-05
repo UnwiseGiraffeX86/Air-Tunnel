@@ -49,6 +49,32 @@ public class ControlPanel extends JPanel {
         });
         add(pauseButton);
         add(Box.createVerticalStrut(15));
+
+        // --- Snapshot ---
+        JButton snapshotButton = new JButton("Take Snapshot (All Views)");
+        snapshotButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        snapshotButton.addActionListener(e -> {
+            try {
+                java.io.File dir = new java.io.File("snapshots");
+                if (!dir.exists()) dir.mkdirs();
+                
+                String timestamp = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+                
+                String[] modes = {"Velocity", "Pressure", "Curl"};
+                for (int i = 0; i < 3; i++) {
+                    java.awt.image.BufferedImage img = view.getSnapshot(i);
+                    java.io.File file = new java.io.File(dir, "snapshot_" + timestamp + "_" + modes[i] + ".png");
+                    javax.imageio.ImageIO.write(img, "png", file);
+                }
+                
+                JOptionPane.showMessageDialog(parentFrame, "Snapshots saved to " + dir.getAbsolutePath());
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(parentFrame, "Error saving snapshots: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+        add(snapshotButton);
+        add(Box.createVerticalStrut(15));
         
         // --- Simulation Speed ---
         JLabel speedControlLabel = createLabel("Sim Speed (Steps/Frame): 2");
