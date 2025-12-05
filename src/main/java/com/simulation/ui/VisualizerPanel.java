@@ -109,28 +109,42 @@ public class VisualizerPanel extends JPanel {
         int mh = model.getHeight();
         
         // Update the pixel buffer directly
-        // This is much faster than calling fillRect for every cell
+        // Optimized: Direct array access to avoid method call overhead
+        float[] ux = model.getUxArray();
+        float[] uy = model.getUyArray();
+        float[] rho = model.getRhoArray();
+        boolean[] obstacle = model.getObstacleArray();
+        
         for (int y = 0; y < mh; y++) {
+            int yOffset = y * mw;
             for (int x = 0; x < mw; x++) {
-                int idx = y * mw + x;
+                int idx = yOffset + x;
                 int colorVal = 0;
 
-                if (model.isObstacle(x, y)) {
+                if (obstacle[idx]) {
                     colorVal = 0xFF808080; // Gray
                 } else {
                     if (viewMode == 0) { // Velocity
-                        double ux = model.getVelocityX(x, y);
-                        double uy = model.getVelocityY(x, y);
-                        double speed = Math.sqrt(ux * ux + uy * uy);
-                        if (Double.isNaN(speed)) speed = 0; // Safety
+                        float vx = ux[idx];
+                        float vy = uy[idx];
+                        // Avoid sqrt if possible, but needed for magnitude
+                        // We can use a faster approximation or just standard sqrt (it's intrinsic usually)
+                        double speed = Math.sqrt(vx * vx + vy * vy);
+                        if (Double.isNaN(speed)) speed = 0; 
                         colorVal = getHeatMapColorInt(speed, 0.15);
                     } else if (viewMode == 1) { // Pressure (Density)
-                        double rho = model.getDensity(x, y);
-                        if (Double.isNaN(rho)) rho = 1.0; // Safety
-                        colorVal = getHeatMapColorInt(rho - 1.0, 0.05); 
+                        float r = rho[idx];
+                        if (Float.isNaN(r)) r = 1.0f; 
+                        colorVal = getHeatMapColorInt(r - 1.0, 0.05); 
                     } else if (viewMode == 2) { // Curl
-                        double curl = model.getCurl(x, y);
-                        if (Double.isNaN(curl)) curl = 0; // Safety
+                        // Inline Curl Calculation
+                        double curl = 0;
+                        if (x > 0 && x < mw - 1 && y > 0 && y < mh - 1) {
+                            float duy_dx = (uy[yOffset + x + 1] - uy[yOffset + x - 1]) * 0.5f;
+                            float dux_dy = (ux[(y + 1) * mw + x] - ux[(y - 1) * mw + x]) * 0.5f;
+                            curl = duy_dx - dux_dy;
+                        }
+                        if (Double.isNaN(curl)) curl = 0;
                         colorVal = getCurlColorInt(curl);
                     }
                 }
@@ -177,25 +191,45 @@ public class VisualizerPanel extends JPanel {
 
     /**
      * Maps a scalar value to an RGB integer.
+     * Gradient: Black -> Blue -> Cyan -> Green -> Yellow -> Red
      */
     private int getHeatMapColorInt(double value, double max) {
         double normalized = Math.abs(value) / max;
         if (normalized > 1.0) normalized = 1.0;
         
-        int r, g, b;
+        int r = 0, g = 0, b = 0;
 
-        if (normalized < 0.5) {
-            // Blue to Green
-            double ratio = normalized * 2.0;
-            r = 0;
+        // 5-stop gradient for better visualization
+        // 0.00 - 0.20: Black -> Blue
+        // 0.20 - 0.40: Blue -> Cyan
+        // 0.40 - 0.60: Cyan -> Green
+        // 0.60 - 0.80: Green -> Yellow
+        // 0.80 - 1.00: Yellow -> Red
+        
+        if (normalized < 0.2) {
+            // Black -> Blue
+            double ratio = normalized / 0.2;
+            b = (int) (255 * ratio);
+        } else if (normalized < 0.4) {
+            // Blue -> Cyan
+            double ratio = (normalized - 0.2) / 0.2;
+            b = 255;
             g = (int) (255 * ratio);
+        } else if (normalized < 0.6) {
+            // Cyan -> Green
+            double ratio = (normalized - 0.4) / 0.2;
+            g = 255;
             b = (int) (255 * (1 - ratio));
-        } else {
-            // Green to Red
-            double ratio = (normalized - 0.5) * 2.0;
+        } else if (normalized < 0.8) {
+            // Green -> Yellow
+            double ratio = (normalized - 0.6) / 0.2;
+            g = 255;
             r = (int) (255 * ratio);
+        } else {
+            // Yellow -> Red
+            double ratio = (normalized - 0.8) / 0.2;
+            r = 255;
             g = (int) (255 * (1 - ratio));
-            b = 0;
         }
 
         return (0xFF << 24) | (r << 16) | (g << 8) | b;

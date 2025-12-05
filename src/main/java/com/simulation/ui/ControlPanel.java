@@ -81,7 +81,8 @@ public class ControlPanel extends JPanel {
         presetCombo.setAlignmentX(Component.LEFT_ALIGNMENT);
         
         // We need references to sliders to update them when preset changes
-        JSlider viscositySlider = new JSlider(51, 200, 60);
+        // Initialized here, added to UI later
+        JSlider viscositySlider = new JSlider(52, 200, 60);
         
         presetCombo.addActionListener(e -> {
             int idx = presetCombo.getSelectedIndex();
@@ -96,6 +97,7 @@ public class ControlPanel extends JPanel {
         JLabel viscosityLabel = createLabel("Viscosity: 0.60");
         add(viscosityLabel);
         
+        // Increased min viscosity to 0.52 to prevent instability (BGK limit is 0.5)
         viscositySlider.setAlignmentX(Component.LEFT_ALIGNMENT);
         viscositySlider.setToolTipText("Lower = Water-like, Higher = Honey-like");
         viscositySlider.addChangeListener(e -> {
@@ -166,6 +168,15 @@ public class ControlPanel extends JPanel {
             model.reset();
         });
         add(resetButton);
+        add(Box.createVerticalStrut(10));
+        
+        // --- Debug Button ---
+        JButton debugButton = new JButton("Print Debug Info");
+        debugButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        debugButton.addActionListener(e -> {
+            model.printDebugInfo();
+        });
+        add(debugButton);
         
         // Push everything to top
         add(Box.createVerticalGlue());

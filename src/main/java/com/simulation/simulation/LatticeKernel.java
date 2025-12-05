@@ -207,9 +207,29 @@ public class LatticeKernel extends Kernel {
         velX = (f1 + f5 + f8 - f3 - f6 - f7);
         velY = (f2 + f5 + f6 - f4 - f7 - f8);
 
-        if (density > 0) {
+        // STABILITY FIX: Clamp Density
+        // Note: Float.isNaN() causes Aparapi to fall back to CPU.
+        // We use !(density > 0.0f) which catches both <= 0 and NaN.
+        if (!(density > 0.0f)) {
+            density = 1.0f;
+            velX = 0.0f;
+            velY = 0.0f;
+            // Reset distribution to equilibrium at rest
+            // We can't easily reset f0..f8 here without affecting the next step's streaming if we were writing back to f
+            // But we are writing to fNew. So we just proceed with density=1, u=0.
+        } else {
             velX /= density;
             velY /= density;
+        }
+
+        // STABILITY FIX: Clamp Velocity
+        float u2 = velX * velX + velY * velY;
+        float maxU2 = 0.15f; // Max velocity squared limit
+        if (u2 > maxU2) {
+            float scale = (float)Math.sqrt(maxU2 / u2);
+            velX *= scale;
+            velY *= scale;
+            u2 = maxU2;
         }
 
         // Write Macroscopic
@@ -218,7 +238,7 @@ public class LatticeKernel extends Kernel {
         uy[currentMacroIndex] = velY;
 
         // Collision (Relaxation)
-        float u2 = velX * velX + velY * velY;
+        // u2 is already updated if clamped
         float c1 = 3.0f;
         float c2 = 4.5f;
         float c3 = 1.5f;

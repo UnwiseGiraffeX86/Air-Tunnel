@@ -2,10 +2,27 @@
 
 ![Java](https://img.shields.io/badge/Java-ED8B00?style=for-the-badge&logo=java&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)
+![Release](https://img.shields.io/badge/Release-Alpha%200.1-green?style=for-the-badge)
 
 A 2D fluid dynamics simulation written in Java. I built this project to explore computational physics, specifically the **Lattice Boltzmann Method (LBM)**, and to create a visual way to understand how air flows around objects.
 
 It's a virtual wind tunnel where you can draw walls, change the wind speed, and see how the air reacts in real-time.
+
+---
+
+## Release Notes: Alpha 0.1
+**"High-Performance Update"**
+
+This release focuses on stability and performance for high-resolution simulations.
+
+*   **GPU Acceleration**: Now uses **Aparapi** to run the physics kernel on your GPU (OpenCL), significantly improving performance on large grids.
+*   **Stability Fixes**: Implemented density clamping and velocity limiting to prevent "Black Screen" crashes at high Reynolds numbers.
+*   **Optimized Rendering**: Direct memory access for visualization, reducing CPU overhead by ~40%.
+*   **Debug Tools**: Added a "Print Debug Info" button to the control panel to monitor Reynolds Number, Density Range, and Stability metrics in real-time.
+*   **New Controls**:
+    *   **Wind Angle**: Adjust the direction of the airflow.
+    *   **View Modes**: Switch between Velocity, Pressure (Density), and Curl (Vorticity).
+    *   **Resolution**: Support for High-Res (512x256) grids.
 
 ---
 
@@ -16,11 +33,12 @@ It's a virtual wind tunnel where you can draw walls, change the wind speed, and 
 *   **Visualizes Data**:
     *   **Heatmap**: Shows velocity (Blue is slow, Red is fast).
     *   **Streamlines**: White particles show the path of the air.
+    *   **Vorticity**: Visualize the curl/spin of the fluid.
 *   **Calculates Forces**: Displays real-time **Drag** and **Lift** values acting on the obstacles.
 *   **Adjustable Settings**:
     *   Change fluid viscosity (make it flow like water or honey).
-    *   Adjust wind speed.
-    *   Change grid resolution (up to 400x200).
+    *   Adjust wind speed and angle.
+    *   Change grid resolution (up to 512x256).
 
 ## Built With
 
@@ -70,8 +88,10 @@ It's a virtual wind tunnel where you can draw walls, change the wind speed, and 
 | :--- | :--- |
 | **Left Click + Drag** | Draw solid obstacles (walls). |
 | **Right Click + Drag** | Erase obstacles. |
-| **Sliders** | Adjust Viscosity and Inlet Velocity. |
-| **Dropdown** | Change Simulation Resolution. |
+| **Sim Speed Slider** | Control simulation steps per frame. |
+| **Viscosity Slider** | Adjust fluid thickness (Tau). |
+| **Wind Speed/Angle** | Control inlet velocity vector. |
+| **Print Debug Info** | Output current physics state to console. |
 
 ## Future Improvements
 

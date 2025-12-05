@@ -228,6 +228,74 @@ public class LatticeModel {
         
         // 5. Update Particles (CPU)
         updateParticles();
+        
+        // Debug: Check for instability every 60 steps
+        if (currentStep % 60 == 0) {
+            checkStability();
+        }
+    }
+    
+    private void checkStability() {
+        boolean unstable = false;
+        float maxU = 0f;
+        float maxRho = 0f;
+        
+        for(int i=0; i<rho.length; i++) {
+            if (Float.isNaN(rho[i]) || Float.isInfinite(rho[i])) {
+                unstable = true;
+                break;
+            }
+            if (rho[i] > maxRho) maxRho = rho[i];
+            float u = ux[i]*ux[i] + uy[i]*uy[i];
+            if (u > maxU) maxU = u;
+        }
+        
+        if (unstable) {
+            System.err.println("SIMULATION UNSTABLE at step " + currentStep);
+            // Auto-reset or just warn?
+        } else {
+            // System.out.println("Step: " + currentStep + " | Max Rho: " + maxRho + " | Max U^2: " + maxU);
+        }
+    }
+    
+    public void printDebugInfo() {
+        float maxU = 0f;
+        float minRho = Float.MAX_VALUE;
+        float maxRho = -Float.MAX_VALUE;
+        int nanCount = 0;
+        
+        for(int i=0; i<rho.length; i++) {
+            if (Float.isNaN(rho[i])) {
+                nanCount++;
+                continue;
+            }
+            if (rho[i] > maxRho) maxRho = rho[i];
+            if (rho[i] < minRho) minRho = rho[i];
+            
+            float u = ux[i]*ux[i] + uy[i]*uy[i];
+            if (u > maxU) maxU = u;
+        }
+        
+        System.out.println("=== DEBUG INFO ===");
+        System.out.println("Grid: " + width + "x" + height);
+        System.out.println("Step: " + currentStep);
+        System.out.println("Viscosity (Tau): " + tau);
+        System.out.println("Inlet Velocity: " + inletVelocity);
+        System.out.println("Max Velocity^2: " + maxU);
+        System.out.println("Density Range: " + minRho + " - " + maxRho);
+        System.out.println("NaN Cells: " + nanCount);
+        
+        // Reynolds Number Estimation
+        // Re = (U * L) / nu
+        // nu = (tau - 0.5) / 3
+        // L = Obstacle Diameter (approx height / 5)
+        double nu = (tau - 0.5) / 3.0;
+        double L = height / 5.0;
+        double Re = (inletVelocity * L) / nu;
+        System.out.println("Est. Reynolds Number: " + String.format("%.2f", Re));
+        if (Re > 2000) System.out.println("WARNING: High Reynolds number! Instability likely.");
+        
+        System.out.println("==================");
     }
 
     /**
@@ -264,6 +332,13 @@ public class LatticeModel {
         if (x < 0 || x >= width || y < 0 || y >= height) return 0;
         return uy[y * width + x];
     }
+    
+    // --- Direct Array Access for Rendering Optimization ---
+    public float[] getUxArray() { return ux; }
+    public float[] getUyArray() { return uy; }
+    public float[] getRhoArray() { return rho; }
+    public boolean[] getObstacleArray() { return obstacle; }
+    // -----------------------------------------------------
     
     public synchronized double getDensity(int x, int y) {
         if (x < 0 || x >= width || y < 0 || y >= height) return 0;
