@@ -1,0 +1,12 @@
+# Compiled class file
+*.class
+
+# Log files
+*.log
+
+# Maven
+target/
+dependency-reduced-pom.xml
+
+# IDE
+.vscode/
