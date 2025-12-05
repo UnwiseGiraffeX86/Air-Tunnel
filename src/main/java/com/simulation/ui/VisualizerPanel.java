@@ -5,9 +5,12 @@ import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import java.awt.Color;
 import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.Dimension;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.image.BufferedImage;
 
 import com.simulation.simulation.Particle;
 import java.util.List;
@@ -21,12 +24,17 @@ import java.util.List;
 public class VisualizerPanel extends JPanel {
 
     private final LatticeModel model;
-    private final int scale = 4; // Scale factor for rendering (1 grid node = 4x4 pixels)
+    private int viewMode = 0; // 0=Velocity, 1=Pressure, 2=Curl
+    private BufferedImage canvas;
+    private int[] canvasPixels;
 
     public VisualizerPanel(LatticeModel model) {
         this.model = model;
-        updateSize();
         this.setBackground(Color.BLACK);
+        this.setPreferredSize(new Dimension(800, 400));
+        
+        // Initialize buffer
+        initBuffer();
 
         // Mouse Interaction for drawing obstacles
         MouseAdapter mouseHandler = new MouseAdapter() {
@@ -45,14 +53,40 @@ public class VisualizerPanel extends JPanel {
         this.addMouseMotionListener(mouseHandler);
     }
     
+    private void initBuffer() {
+        int w = model.getWidth();
+        int h = model.getHeight();
+        if (canvas == null || canvas.getWidth() != w || canvas.getHeight() != h) {
+            canvas = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+            canvasPixels = ((java.awt.image.DataBufferInt) canvas.getRaster().getDataBuffer()).getData();
+        }
+    }
+    
+    public void setViewMode(int mode) {
+        this.viewMode = mode;
+    }
+    
     public void updateSize() {
-        this.setPreferredSize(new Dimension(model.getWidth() * scale, model.getHeight() * scale));
+        initBuffer();
         this.revalidate();
     }
 
     private void handleMouseInput(MouseEvent e) {
-        int gridX = e.getX() / scale;
-        int gridY = e.getY() / scale;
+        int mw = model.getWidth();
+        int mh = model.getHeight();
+        
+        // Calculate scale to preserve aspect ratio
+        double scale = Math.min((double) getWidth() / mw, (double) getHeight() / mh);
+        
+        // Calculate offsets to center the image
+        int drawW = (int) (mw * scale);
+        int drawH = (int) (mh * scale);
+        int offX = (getWidth() - drawW) / 2;
+        int offY = (getHeight() - drawH) / 2;
+        
+        // Map mouse to grid
+        int gridX = (int) ((e.getX() - offX) / scale);
+        int gridY = (int) ((e.getY() - offY) / scale);
         
         // Left click to draw, Right click to erase
         boolean isSolid = !SwingUtilities.isRightMouseButton(e);
@@ -68,39 +102,65 @@ public class VisualizerPanel extends JPanel {
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
+        
+        if (canvas == null) initBuffer();
+        
+        int mw = model.getWidth();
+        int mh = model.getHeight();
+        
+        // Update the pixel buffer directly
+        // This is much faster than calling fillRect for every cell
+        for (int y = 0; y < mh; y++) {
+            for (int x = 0; x < mw; x++) {
+                int idx = y * mw + x;
+                int colorVal = 0;
 
-        // Render the grid
-        for (int x = 0; x < model.getWidth(); x++) {
-            for (int y = 0; y < model.getHeight(); y++) {
-                
-                // Draw Obstacles
                 if (model.isObstacle(x, y)) {
-                    g.setColor(Color.GRAY);
-                    g.fillRect(x * scale, y * scale, scale, scale);
-                    continue;
+                    colorVal = 0xFF808080; // Gray
+                } else {
+                    if (viewMode == 0) { // Velocity
+                        double ux = model.getVelocityX(x, y);
+                        double uy = model.getVelocityY(x, y);
+                        double speed = Math.sqrt(ux * ux + uy * uy);
+                        if (Double.isNaN(speed)) speed = 0; // Safety
+                        colorVal = getHeatMapColorInt(speed, 0.15);
+                    } else if (viewMode == 1) { // Pressure (Density)
+                        double rho = model.getDensity(x, y);
+                        if (Double.isNaN(rho)) rho = 1.0; // Safety
+                        colorVal = getHeatMapColorInt(rho - 1.0, 0.05); 
+                    } else if (viewMode == 2) { // Curl
+                        double curl = model.getCurl(x, y);
+                        if (Double.isNaN(curl)) curl = 0; // Safety
+                        colorVal = getCurlColorInt(curl);
+                    }
                 }
-
-                // Calculate Velocity Magnitude
-                double ux = model.getVelocityX(x, y);
-                double uy = model.getVelocityY(x, y);
-                double speed = Math.sqrt(ux * ux + uy * uy);
-
-                // Map speed to color (Heatmap)
-                // Assuming max speed is around 0.2 - 0.3 for stability
-                Color color = getHeatMapColor(speed);
-                g.setColor(color);
-                g.fillRect(x * scale, y * scale, scale, scale);
+                canvasPixels[idx] = colorVal;
             }
         }
+
+        // Calculate scale to preserve aspect ratio
+        double scale = Math.min((double) getWidth() / mw, (double) getHeight() / mh);
+        int drawW = (int) (mw * scale);
+        int drawH = (int) (mh * scale);
+        int offX = (getWidth() - drawW) / 2;
+        int offY = (getHeight() - drawH) / 2;
+
+        // Draw the image scaled and centered
+        Graphics2D g2d = (Graphics2D) g;
+        g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+        g2d.drawImage(canvas, offX, offY, drawW, drawH, null);
 
         // Draw Particles (Streamlines)
         g.setColor(Color.WHITE);
         List<Particle> particles = model.getParticles();
         if (particles != null) {
             for (Particle p : particles) {
-                int px = (int) (p.x * scale);
-                int py = (int) (p.y * scale);
-                g.fillOval(px, py, 2, 2);
+                int px = offX + (int) (p.x * scale);
+                int py = offY + (int) (p.y * scale);
+                // Clip to drawing area
+                if (px >= offX && px < offX + drawW && py >= offY && py < offY + drawH) {
+                    g.fillOval(px, py, 2, 2);
+                }
             }
         }
 
@@ -116,19 +176,11 @@ public class VisualizerPanel extends JPanel {
     }
 
     /**
-     * Maps a scalar value (speed) to a Color (Blue -> Green -> Red).
+     * Maps a scalar value to an RGB integer.
      */
-    private Color getHeatMapColor(double value) {
-        // Normalize value (clamp between 0 and max expected speed)
-        double maxSpeed = 0.15; 
-        double normalized = value / maxSpeed;
+    private int getHeatMapColorInt(double value, double max) {
+        double normalized = Math.abs(value) / max;
         if (normalized > 1.0) normalized = 1.0;
-        if (normalized < 0.0) normalized = 0.0;
-
-        // Simple Blue to Red gradient
-        // 0.0 -> Blue (0, 0, 255)
-        // 0.5 -> Green (0, 255, 0)
-        // 1.0 -> Red (255, 0, 0)
         
         int r, g, b;
 
@@ -146,6 +198,21 @@ public class VisualizerPanel extends JPanel {
             b = 0;
         }
 
-        return new Color(r, g, b);
+        return (0xFF << 24) | (r << 16) | (g << 8) | b;
+    }
+    
+    private int getCurlColorInt(double val) {
+        double max = 0.02;
+        double norm = val / max;
+        if (norm > 1) norm = 1;
+        if (norm < -1) norm = -1;
+        
+        int r = 0, g = 0, b = 0;
+        if (norm > 0) {
+            r = (int)(255 * norm);
+        } else {
+            b = (int)(255 * -norm);
+        }
+        return (0xFF << 24) | (r << 16) | (g << 8) | b;
     }
 }

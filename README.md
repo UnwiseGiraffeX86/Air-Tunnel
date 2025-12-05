@@ -25,14 +25,28 @@ It's a virtual wind tunnel where you can draw walls, change the wind speed, and 
 ## Built With
 
 *   **Java (JDK 11+)**: Core logic and physics.
-*   **Swing**: Used for the GUI and custom rendering. No external game engines or heavy libraries were used—just standard Java.
+*   **Maven**: Dependency management and build system.
+*   **Aparapi**: GPU computing library (experimental support).
+*   **Swing**: Used for the GUI and custom rendering.
 
 ## Installation & Run
 
 ### Prerequisites
 *   Java Development Kit (JDK) 11 or higher.
+*   Maven (optional, wrapper included in future updates).
 
-### Running via Command Line
+### Running with Maven (Recommended)
+1.  Navigate to the project root (where `pom.xml` is located).
+2.  Build the project:
+    ```bash
+    mvn clean package
+    ```
+3.  Run the generated JAR:
+    ```bash
+    java -jar target/air-tunnel-1.0-SNAPSHOT.jar
+    ```
+
+### Running via Command Line (Legacy)
 1.  Clone the repository:
     ```bash
     git clone https://github.com/UnwiseGiraffeX86/air-tunnel-simulation.git

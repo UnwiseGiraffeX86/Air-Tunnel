@@ -19,10 +19,16 @@ public class Engine implements Runnable {
     // Target FPS
     private final int FPS = 60;
     private final long TARGET_TIME = 1000 / FPS;
+    
+    private int stepsPerFrame = 2;
 
     public Engine(LatticeModel model, VisualizerPanel view) {
         this.model = model;
         this.view = view;
+    }
+    
+    public void setStepsPerFrame(int steps) {
+        this.stepsPerFrame = steps;
     }
     
     public void setPaused(boolean paused) {
@@ -57,7 +63,7 @@ public class Engine implements Runnable {
             // 1. Update Physics
             if (!paused) {
                 // We can perform multiple physics steps per frame for faster simulation
-                for (int i = 0; i < 5; i++) {
+                for (int i = 0; i < stepsPerFrame; i++) {
                     model.step();
                 }
             }

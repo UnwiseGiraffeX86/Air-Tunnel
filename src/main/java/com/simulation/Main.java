@@ -18,16 +18,21 @@ import java.awt.BorderLayout;
 public class Main {
 
     public static void main(String[] args) {
-        // Apply Modern Look and Feel (Nimbus)
+        // Apply Modern Look and Feel (FlatLaf Dark)
         try {
-            for (javax.swing.UIManager.LookAndFeelInfo info : javax.swing.UIManager.getInstalledLookAndFeels()) {
-                if ("Nimbus".equals(info.getName())) {
-                    javax.swing.UIManager.setLookAndFeel(info.getClassName());
-                    break;
-                }
-            }
+            javax.swing.UIManager.setLookAndFeel(new com.formdev.flatlaf.FlatDarkLaf());
         } catch (Exception e) {
-            // Fallback to default
+            // Fallback to Nimbus if FlatLaf fails
+            try {
+                for (javax.swing.UIManager.LookAndFeelInfo info : javax.swing.UIManager.getInstalledLookAndFeels()) {
+                    if ("Nimbus".equals(info.getName())) {
+                        javax.swing.UIManager.setLookAndFeel(info.getClassName());
+                        break;
+                    }
+                }
+            } catch (Exception ex) {
+                // Fallback to default
+            }
         }
 
         // Ensure UI creation runs on the Event Dispatch Thread (EDT)
@@ -40,7 +45,7 @@ public class Main {
         // 1. Create the Main Window
         JFrame frame = new JFrame("Air Tunnel Simulation (LBM D2Q9)");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setResizable(false);
+        frame.setResizable(true);
         frame.setLayout(new BorderLayout());
 
         // 2. Initialize Simulation Components
